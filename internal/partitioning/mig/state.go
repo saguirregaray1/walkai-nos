@@ -17,27 +17,29 @@
 package mig
 
 import (
-	"github.com/nebuly-ai/nos/pkg/gpu"
+	"github.com/nebuly-ai/nos/internal/partitioning/state"
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	v1 "k8s.io/api/core/v1"
 )
 
-var _ gpu.SliceFilter = sliceFilter{}
+func BuildNodePartitioning(node mig.Node) state.NodePartitioning {
+	partitioning := state.NodePartitioning{GPUs: make([]state.GPUPartitioning, 0, len(node.GPUs))}
 
-type sliceFilter struct {
-}
-
-func (f sliceFilter) ExtractSlices(resources map[v1.ResourceName]int64) map[gpu.Slice]int {
-	var res = make(map[gpu.Slice]int)
-	for r, q := range resources {
-		if mig.IsNvidiaMigDevice(r) {
-			profileName, _ := mig.ExtractProfileName(r)
-			res[profileName] += int(q)
+	for _, gpu := range node.GPUs {
+		geometry := gpu.GetGeometry()
+		resources := make(map[v1.ResourceName]int)
+		for slice, quantity := range geometry {
+			profile, ok := slice.(mig.ProfileName)
+			if !ok || quantity <= 0 {
+				continue
+			}
+			resources[profile.AsResourceName()] = quantity
 		}
+		partitioning.GPUs = append(partitioning.GPUs, state.GPUPartitioning{
+			GPUIndex:  gpu.GetIndex(),
+			Resources: resources,
+		})
 	}
-	return res
-}
 
-func NewSliceFilter() gpu.SliceFilter {
-	return sliceFilter{}
+	return partitioning
 }

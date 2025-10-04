@@ -19,29 +19,25 @@ package mig
 import (
 	"context"
 	"fmt"
-	"github.com/nebuly-ai/nos/internal/partitioning/core"
 	"github.com/nebuly-ai/nos/pkg/gpu"
-	"github.com/nebuly-ai/nos/pkg/gpu/mig"
+	gpumig "github.com/nebuly-ai/nos/pkg/gpu/mig"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type nodeInitializer struct {
-	partitioner         core.Partitioner
-	partitionCalculator core.PartitionCalculator
+type NodeInitializer struct {
+	partitioner *Partitioner
 }
 
-func NewNodeInitializer(client client.Client) core.NodeInitializer {
-	p := NewPartitioner(client)
-	return nodeInitializer{
-		partitioner:         p,
-		partitionCalculator: NewPartitionCalculator(),
+func NewNodeInitializer(client client.Client) *NodeInitializer {
+	return &NodeInitializer{
+		partitioner: NewPartitioner(client),
 	}
 }
 
-func (n nodeInitializer) InitNodePartitioning(ctx context.Context, node v1.Node) error {
+func (n *NodeInitializer) InitNodePartitioning(ctx context.Context, node v1.Node) error {
 	logger := log.FromContext(ctx)
 
 	if !gpu.IsMigPartitioningEnabled(node) {
@@ -51,7 +47,7 @@ func (n nodeInitializer) InitNodePartitioning(ctx context.Context, node v1.Node)
 	// Initialize node GPUs
 	nodeInfo := framework.NewNodeInfo()
 	nodeInfo.SetNode(&node)
-	migNode, err := mig.NewNode(*nodeInfo)
+	migNode, err := gpumig.NewNode(*nodeInfo)
 	if err != nil {
 		return err
 	}
@@ -74,9 +70,9 @@ func (n nodeInitializer) InitNodePartitioning(ctx context.Context, node v1.Node)
 	}
 
 	// Apply new partitioning
-	nodePartitioning := n.partitionCalculator.GetPartitioning(&migNode)
+	nodePartitioning := BuildNodePartitioning(migNode)
 	logger.Info("applying partitioning", "node", node.Name, "partitioning", nodePartitioning)
-	if err = n.partitioner.ApplyPartitioning(ctx, node, core.NewPartitioningPlanId(), nodePartitioning); err != nil {
+	if err = n.partitioner.ApplyPartitioning(ctx, node, NewPartitioningPlanID(), nodePartitioning); err != nil {
 		return fmt.Errorf("error applying partitioning: %v", err)
 	}
 	return nil

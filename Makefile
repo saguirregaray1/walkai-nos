@@ -4,8 +4,6 @@ NOS_VERSION ?= 0.1.2
 DOCKER_REGISTRY ?= ghcr.io/nebuly-ai
 
 # Image URLs to build/push Docker image targets
-OPERATOR_IMG ?= $(DOCKER_REGISTRY)/nos-operator:$(NOS_VERSION)
-SCHEDULER_IMG ?= $(DOCKER_REGISTRY)/nos-scheduler:$(NOS_VERSION)
 GPU_PARTITIONER_IMG ?= $(DOCKER_REGISTRY)/nos-gpu-partitioner:$(NOS_VERSION)
 MIG_AGENT_IMG ?= $(DOCKER_REGISTRY)/nos-mig-agent:$(NOS_VERSION)
 GPU_AGENT_IMG ?= $(DOCKER_REGISTRY)/nos-gpu-agent:$(NOS_VERSION)
@@ -51,15 +49,6 @@ help: ## Display this help.
 
 ##@ Development
 
-.PHONY: operator-manifests ## Generate manifests for the nos operator (CRD, ClusterRole, WebhookConfig, etc.).
-operator-manifests: controller-gen ## Generate CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) crd paths="./internal/controllers/elasticquota/;./pkg/api/..." \
-	webhook \
-	rbac:roleName=operator-role \
-	output:rbac:artifacts:config=config/operator/rbac \
-	output:crd:artifacts:config=config/operator/crd/bases \
-	output:webhook:artifacts:config=config/operator/webhook
-
 .PHONY: gpu-partitioner-manifests ## Generate manifests for the gpu-partitioner (ClusterRole, etc.).
 gpu-partitioner-manifests: controller-gen
 	$(CONTROLLER_GEN) paths="./internal/controllers/gpupartitioner" \
@@ -78,8 +67,9 @@ gpu-agent-manifests: controller-gen
 	rbac:roleName=gpu-agent-role \
 	output:rbac:artifacts:config=config/gpuagent/rbac
 
+
 .PHONY: manifests
-manifests: operator-manifests \
+manifests: \
 	mig-agent-manifests \
 	gpu-partitioner-manifests \
 	gpu-agent-manifests
@@ -87,10 +77,6 @@ manifests: operator-manifests \
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate/license.txt" paths="./..."
-
-.PHONY: generate-scheduler
-generate-scheduler: defaulter-gen conversion-gen ## Generate defaults and conversions for scheduler.
-	CONVERSION_GEN=$(CONVERSION_GEN) DEFAULTER_GEN=$(DEFAULTER_GEN) bash hack/generate-scheduler.sh
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -142,21 +128,9 @@ docker-build-mig-agent: ## Build docker image with the mig-agent.
 docker-build-gpu-agent: ## Build docker image with the gpu-agent.
 	docker build -t ${GPU_AGENT_IMG} -f build/gpuagent/Dockerfile .
 
-.PHONY: docker-build-operator
-docker-build-operator: ## Build docker image with the operator.
-	docker build -t ${OPERATOR_IMG} -f build/operator/Dockerfile .
-
-.PHONY: docker-build-scheduler
-docker-build-scheduler: ## Build docker image with the scheduler.
-	docker build -t ${SCHEDULER_IMG} -f build/scheduler/Dockerfile .
-
 .PHONY: docker-build-metrics-exporter
 docker-build-metrics-exporter: ## Build docker image with the metrics-exporter.
 	docker build -t ${METRICS_EXPORTER_IMG} -f build/metricsexporter/Dockerfile .
-
-.PHONY: docker-push-operator
-docker-push-operator: ## Push docker image with the operator.
-	docker push ${OPERATOR_IMG}
 
 .PHONY: docker-push-mig-agent
 docker-push-mig-agent: ## Push docker image with the mig-agent.
@@ -165,10 +139,6 @@ docker-push-mig-agent: ## Push docker image with the mig-agent.
 .PHONY: docker-push-gpu-agent
 docker-push-gpu-agent: ## Push docker image with the gpu-agent.
 	docker push ${GPU_AGENT_IMG}
-
-.PHONY: docker-push-scheduler
-docker-push-scheduler: ## Push docker image with the scheduler.
-	docker push ${SCHEDULER_IMG}
 
 .PHONY: docker-push-gpu-partitioner
 docker-push-gpu-partitioner: ## Push docker image with the gpu-partitioner.
@@ -181,16 +151,12 @@ docker-push-metrics-exporter: ## Push docker image with the metrics-exporter.
 .PHONY: docker-build
 docker-build: docker-build-mig-agent \
 	docker-build-gpu-agent \
-	docker-build-operator \
-	docker-build-scheduler \
 	docker-build-gpu-partitioner \
 	docker-build-metrics-exporter
 
 .PHONY: docker-push
 docker-push: docker-push-mig-agent \
 	docker-push-gpu-agent \
-	docker-push-operator \
-	docker-push-scheduler \
 	docker-push-gpu-partitioner \
 	docker-push-metrics-exporter
 
@@ -213,16 +179,6 @@ endif
 install-cert-manager: ## Deploy cert-manager on the K8s cluster specified in ~/.kube/config
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
 
-.PHONY: deploy-operator
-deploy-operator: operator-manifests kustomize ## Deploy the nos Operator to the K8s cluster specified in ~/.kube/config.
-	cd config/operator/manager && $(KUSTOMIZE) edit set image controller=${OPERATOR_IMG}
-	$(KUSTOMIZE) build config/operator/default | kubectl apply -f -
-
-.PHONY: deploy-scheduler
-deploy-scheduler: kustomize ## Deploy the nos scheduler to the K8s cluster specified in ~/.kube/config.
-	cd config/scheduler/deployment && $(KUSTOMIZE) edit set image scheduler=${SCHEDULER_IMG}
-	$(KUSTOMIZE) build config/scheduler/default | kubectl apply -f -
-
 .PHONY: deploy-mig-agent
 deploy-mig-agent: kustomize ## Deploy the MIG Agent to the K8s cluster specified in ~/.kube/config.
 	cd config/migagent/manager && $(KUSTOMIZE) edit set image mig-agent=${MIG_AGENT_IMG}
@@ -239,15 +195,7 @@ deploy-gpu-partitioner: kustomize deploy-mig-agent deploy-gpu-agent ## Deploy th
 	$(KUSTOMIZE) build config/gpupartitioner/default | kubectl apply -f -
 
 .PHONY: deploy
-deploy: deploy-operator deploy-scheduler deploy-gpu-partitioner deploy-gpu-agent deploy-mig-agent ## Deploy the all the components to the K8s cluster specified in ~/.kube/config.
-
-.PHONY: undeploy-operator
-undeploy-operator: ## Undeploy the nos operator from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/operator/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
-
-.PHONY: undeploy-scheduler
-undeploy-scheduler: ## Undeploy the nos scheduler from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/scheduler/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+deploy: deploy-gpu-partitioner deploy-gpu-agent deploy-mig-agent ## Deploy the MIG-related components to the K8s cluster specified in ~/.kube/config.
 
 .PHONY: undeploy-mig-agent
 undeploy-mig-agent: ## Undeploy the MIG agent from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -262,7 +210,7 @@ undeploy-gpu-partitioner: ## Undeploy the GPU Partitioner from the K8s cluster s
 	$(KUSTOMIZE) build config/gpupartitioner/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: undeploy
-undeploy: undeploy-operator undeploy-scheduler undeploy-gpu-partitioner undeploy-gpu-agent undeploy-mig-agent ## Undeploy the all the components to the K8s cluster specified in ~/.kube/config.
+undeploy: undeploy-gpu-partitioner undeploy-gpu-agent undeploy-mig-agent ## Undeploy the MIG-related components from the K8s cluster specified in ~/.kube/config.
 
 ##@ Build Dependencies
 

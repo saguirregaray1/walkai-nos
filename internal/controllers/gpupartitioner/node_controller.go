@@ -19,13 +19,10 @@ package gpupartitioner
 import (
 	"context"
 	"fmt"
-	"github.com/nebuly-ai/nos/internal/partitioning/core"
-	"github.com/nebuly-ai/nos/internal/partitioning/state"
+	partitionermig "github.com/nebuly-ai/nos/internal/partitioning/mig"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
-	"github.com/nebuly-ai/nos/pkg/constant"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,85 +36,67 @@ import (
 type NodeController struct {
 	client.Client
 	Scheme         *runtime.Scheme
-	clusterState   *state.ClusterState
-	migInitializer core.NodeInitializer
+	migInitializer *partitionermig.NodeInitializer
 }
 
 func NewNodeController(
 	client client.Client,
 	scheme *runtime.Scheme,
-	migInitializer core.NodeInitializer,
-	state *state.ClusterState,
+	migInitializer *partitionermig.NodeInitializer,
 ) NodeController {
 	return NodeController{
 		Client:         client,
 		Scheme:         scheme,
-		clusterState:   state,
 		migInitializer: migInitializer,
 	}
 }
 
+//+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;patch
+
 func (c *NodeController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Fetch instance
-	var instance v1.Node
-	objKey := client.ObjectKey{Namespace: req.Namespace, Name: req.Name}
-	err := c.Client.Get(ctx, objKey, &instance)
-	if client.IgnoreNotFound(err) != nil {
-		logger.Error(err, "unable to fetch node")
-		return ctrl.Result{}, err
+	var node v1.Node
+	if err := c.Client.Get(ctx, client.ObjectKey{Name: req.Name}, &node); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if apierrors.IsNotFound(err) {
-		logger.V(2).Info("deleting node", "node", instance.Name)
-		c.clusterState.DeleteNode(instance.Name)
+
+	if !gpu.IsMigPartitioningEnabled(node) {
 		return ctrl.Result{}, nil
 	}
 
-	// Check if Node has GPU model and count info
-	_, err = gpu.GetModel(instance)
-	if err != nil {
-		logger.Info("cannot get GPU model from node, skipping", "err", err, "node", instance.Name)
-		return ctrl.Result{}, nil
-	}
-	_, err = gpu.GetCount(instance)
-	if err != nil {
-		logger.Info("cannot get GPU count from node, skipping", "err", err, "node", instance.Name)
+	if isNodeInitialized(node) {
+		logger.V(1).Info("node already initialized", "node", node.Name)
 		return ctrl.Result{}, nil
 	}
 
-	// Handle MIG node initialization
-	var nodeInitialized = core.IsNodeInitialized(instance)
-	if gpu.IsMigPartitioningEnabled(instance) && !nodeInitialized {
-		if err = c.migInitializer.InitNodePartitioning(ctx, instance); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to initialize node MIG partitioning: %w", err)
-		}
+	if _, err := gpu.GetModel(node); err != nil {
+		logger.Info("missing GPU model information, skipping", "node", node.Name, "err", err)
+		return ctrl.Result{}, nil
 	}
-	// Handle MPS node initialization
-	if gpu.IsMpsPartitioningEnabled(instance) && !nodeInitialized {
-		nodeInitialized = true
-	}
-
-	// If the node is not initialized, do not add it to cluster state
-	if !nodeInitialized {
-		logger.Info("node is not initialized yet, skipping", "node", instance.Name)
+	if _, err := gpu.GetCount(node); err != nil {
+		logger.Info("missing GPU count information, skipping", "node", node.Name, "err", err)
 		return ctrl.Result{}, nil
 	}
 
-	// Fetch pods assigned to the node and update state
-	var podList v1.PodList
-	if err = c.Client.List(ctx, &podList, client.MatchingFields{constant.PodNodeNameKey: instance.Name}); err != nil {
-		logger.Error(err, "unable to list pods assigned to node")
-		return ctrl.Result{}, err
+	if err := c.migInitializer.InitNodePartitioning(ctx, node); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to initialize MIG partitioning for node %s: %w", node.Name, err)
 	}
-	logger.V(2).Info("updating node", "node", instance.Name, "nPods", len(podList.Items))
-	c.clusterState.UpdateNode(instance, podList.Items)
 
+	logger.Info("initialized MIG partitioning", "node", node.Name)
 	return ctrl.Result{}, nil
 }
 
+func isNodeInitialized(node v1.Node) bool {
+	count, err := gpu.GetCount(node)
+	if err != nil {
+		return false
+	}
+	_, specAnnotations := gpu.ParseNodeAnnotations(node)
+	return count == len(specAnnotations.GroupByGpuIndex())
+}
+
 func (c *NodeController) SetupWithManager(mgr ctrl.Manager, name string) error {
-	// Reconcile only nodes with GPU partitioning enabled
 	selectorPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{{
 			Key:      v1alpha1.LabelGpuPartitioning,
@@ -127,9 +106,10 @@ func (c *NodeController) SetupWithManager(mgr ctrl.Manager, name string) error {
 	if err != nil {
 		return err
 	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		For(&v1.Node{}, builder.WithPredicates(selectorPredicate)).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(c)
 }

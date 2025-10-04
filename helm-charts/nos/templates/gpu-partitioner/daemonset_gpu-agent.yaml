@@ -19,7 +19,6 @@ spec:
     spec:
       serviceAccountName: {{ include "gpuAgent.fullname" . }}
       nodeSelector:
-        nos.nebuly.com/gpu-partitioning: mps
       priorityClassName: system-node-critical
       terminationGracePeriodSeconds: 20
       {{- if .Values.gpuPartitioner.gpuAgent.runtimeClassName }}

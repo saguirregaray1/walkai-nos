@@ -21,21 +21,10 @@ import (
 	"time"
 )
 
-type CapacityInfo string
-
-const (
-	CapacityInfoOverQuota CapacityInfo = "over-quota"
-	CapacityInfoInQuota   CapacityInfo = "in-quota"
-)
-
 // Controller names
 const (
-	ElasticQuotaControllerName          = "eq-controller"
-	CompositeElasticQuotaControllerName = "ceq-controller"
-	ClusterStateNodeControllerName      = "clusterstate-node-controller"
-	ClusterStatePodControllerName       = "clusterstate-pod-controller"
-	MigPartitionerControllerName        = "mig-partitioner-controller"
-	MpsPartitionerControllerName        = "mps-partitioner-controller"
+	ClusterStateNodeControllerName = "clusterstate-node-controller"
+	MigPartitionerControllerName   = "mig-partitioner-controller"
 )
 
 // Error messages

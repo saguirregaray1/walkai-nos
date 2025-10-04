@@ -19,7 +19,6 @@ package mig
 import (
 	"context"
 	"fmt"
-	"github.com/nebuly-ai/nos/internal/partitioning/core"
 	"github.com/nebuly-ai/nos/internal/partitioning/state"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
 	"github.com/nebuly-ai/nos/pkg/gpu"
@@ -30,17 +29,15 @@ import (
 	"strings"
 )
 
-var _ core.Partitioner = partitioner{}
-
-func NewPartitioner(client client.Client) core.Partitioner {
-	return partitioner{Client: client}
+func NewPartitioner(client client.Client) *Partitioner {
+	return &Partitioner{Client: client}
 }
 
-type partitioner struct {
+type Partitioner struct {
 	client.Client
 }
 
-func (p partitioner) ApplyPartitioning(ctx context.Context, node v1.Node, planId string, partitioning state.NodePartitioning) error {
+func (p Partitioner) ApplyPartitioning(ctx context.Context, node v1.Node, planId string, partitioning state.NodePartitioning) error {
 	var err error
 	logger := log.FromContext(ctx)
 

@@ -17,23 +17,10 @@
 package pod
 
 import (
-	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
-	"github.com/nebuly-ai/nos/pkg/constant"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-helpers/scheduling/corev1"
 )
-
-// IsOverQuota returns true if the pod is "over-quota", false otherwise.
-//
-// A pod is considered over-quota if it is subject to an ElasticQuota, and it is using resources borrowed from another
-// ElasticQuota.
-func IsOverQuota(pod v1.Pod) bool {
-	if val, ok := pod.Labels[v1alpha1.LabelCapacityInfo]; ok {
-		return val == string(constant.CapacityInfoOverQuota)
-	}
-	return false
-}
 
 // ExtraResourcesCouldHelpScheduling returns true if the Pod is unschedulable
 // and there a possibility that adding to the cluster additional resources
