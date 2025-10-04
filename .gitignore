@@ -20,6 +20,9 @@ bin/
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+# Local Go build cache override
+.gocache/
+
 # Python
 .venv/
 .env/

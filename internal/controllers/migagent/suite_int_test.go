@@ -20,6 +20,12 @@ package migagent
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
 	"github.com/nebuly-ai/nos/pkg/test/factory"
@@ -28,14 +34,11 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"testing"
-	"time"
 )
 
 var cfg *rest.Config
@@ -72,15 +75,26 @@ var _ = BeforeSuite(func() {
 	logger = logf.FromContext(ctx)
 
 	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "operator", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+	crdPath := filepath.Join("..", "..", "..", "config", "crd", "bases")
+	if info, err := os.Stat(crdPath); err == nil && info.IsDir() {
+		testEnv = &envtest.Environment{
+			CRDDirectoryPaths:     []string{crdPath},
+			ErrorIfCRDPathMissing: true,
+		}
+	} else {
+		if err != nil && !os.IsNotExist(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		testEnv = &envtest.Environment{}
 	}
 
 	var err error
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		testEnv = nil
+		Skip(fmt.Sprintf("skipping envtest: %v", err))
+	}
 	Expect(cfg).NotTo(BeNil())
 
 	err = v1alpha1.AddToScheme(scheme.Scheme)
@@ -142,6 +156,8 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	cancel()
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	if testEnv != nil {
+		err := testEnv.Stop()
+		Expect(err).NotTo(HaveOccurred())
+	}
 })

@@ -2,40 +2,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: gpu-partitioner-role
 rules:
-- apiGroups:
-  - apps
-  resources:
-  - replicasets
-  - statefulsets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - namespaces
-  - persistentvolumeclaims
-  - persistentvolumes
-  - replicationcontrollers
-  - services
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - ""
   resources:
@@ -49,28 +17,6 @@ rules:
   - ""
   resources:
   - pods
-  verbs:
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - policy
-  resources:
-  - poddisruptionbudgets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - storage.k8s.io
-  resources:
-  - csidrivers
-  - csinodes
-  - csistoragecapacities
-  - storageclasses
   verbs:
   - get
   - list

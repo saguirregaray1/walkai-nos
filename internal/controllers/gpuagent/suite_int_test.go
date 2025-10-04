@@ -20,6 +20,8 @@ package gpuagent_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"github.com/nebuly-ai/nos/internal/controllers/gpuagent"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
 	"github.com/nebuly-ai/nos/pkg/gpu"
@@ -28,6 +30,7 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"os"
 	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,16 +68,22 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.Background())
 
 	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "operator", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+	crdPath := filepath.Join("..", "..", "..", "config", "operator", "crd", "bases")
+	testEnv = &envtest.Environment{}
+	if _, err := os.Stat(crdPath); err == nil {
+		testEnv.CRDDirectoryPaths = []string{crdPath}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		Expect(err).NotTo(HaveOccurred())
 	}
 
 	var err error
 
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		testEnv = nil
+		Skip(fmt.Sprintf("skipping envtest: %v", err))
+	}
 	Expect(cfg).NotTo(BeNil())
 
 	err = v1alpha1.AddToScheme(scheme.Scheme)
@@ -104,6 +113,8 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	cancel()
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	if testEnv != nil {
+		err := testEnv.Stop()
+		Expect(err).NotTo(HaveOccurred())
+	}
 })

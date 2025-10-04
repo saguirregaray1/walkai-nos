@@ -22,6 +22,9 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+GOCACHE ?= $(CURDIR)/.gocache
+export GOCACHE
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
@@ -232,12 +235,12 @@ LICENSE_EYE ?= $(LOCALBIN)/license-eye
 HELM_DOCS ?= $(LOCALBIN)/helm-docs
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v4.5.5
-CONTROLLER_TOOLS_VERSION ?= v0.9.2
-CODE_GENERATOR_VERSION ?= v0.24.3
-GOLANGCI_LINT_VERSION ?= 1.50.1
-HELM_DOCS_VERSION ?= v1.11.0
-CERT_MANAGER_VERSION ?= v1.9.1
+KUSTOMIZE_VERSION ?= latest
+CONTROLLER_TOOLS_VERSION ?= latest
+CODE_GENERATOR_VERSION ?= latest
+GOLANGCI_LINT_VERSION ?= latest
+HELM_DOCS_VERSION ?= latest
+CERT_MANAGER_VERSION ?= latest
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -273,7 +276,7 @@ $(KIND): $(LOCALBIN)
 .PHONY: golangci-lint ## Download golanci-lint if necessary
 golangci-lint: $(GOLANGCI_LINT)
 $(GOLANGCI_LINT): $(LOCALBIN)
-	test -s $(LOCALBIN)/golanci-lint || GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v${GOLANGCI_LINT_VERSION}
+	test -s $(LOCALBIN)/golangci-lint || GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v${GOLANGCI_LINT_VERSION}
 
 .PHONY: license-eye ## Download license-eye if necessary
 license-eye: $(LICENSE_EYE)

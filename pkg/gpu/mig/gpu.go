@@ -17,7 +17,9 @@
 package mig
 
 import (
+	"errors"
 	"fmt"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	"github.com/nebuly-ai/nos/pkg/util"
@@ -121,7 +123,7 @@ func (g *GPU) InitGeometry() error {
 	// Apply the geometry
 	canApply, reason := g.CanApplyGeometry(largestGeometry)
 	if !canApply {
-		return fmt.Errorf(reason)
+		return errors.New(reason)
 	}
 	return g.ApplyGeometry(largestGeometry)
 }
@@ -132,7 +134,7 @@ func (g *GPU) InitGeometry() error {
 func (g *GPU) ApplyGeometry(geometry gpu.Geometry) error {
 	canApply, reason := g.CanApplyGeometry(geometry)
 	if !canApply {
-		return fmt.Errorf(reason)
+		return errors.New(reason)
 	}
 	// Apply geometry by changing free devices
 	for profile, quantity := range geometry {
