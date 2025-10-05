@@ -1,7 +1,7 @@
 # nos version. Used by release workflow, do not move this line.
-NOS_VERSION ?= 0.1.2
+NOS_VERSION ?= 0.0.1
 
-DOCKER_REGISTRY ?= ghcr.io/nebuly-ai
+DOCKER_REGISTRY ?= ghcr.io/saguirregaray1
 
 # Image URLs to build/push Docker image targets
 GPU_PARTITIONER_IMG ?= $(DOCKER_REGISTRY)/nos-gpu-partitioner:$(NOS_VERSION)
