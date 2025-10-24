@@ -1,5 +1,27 @@
 ## Steps
 
+### Enable MIG
+```bash
+sudo nvidia-smi -i 0 -mig 1
+```
+Check with this
+```bash
+nvidia-smi -i 0 -q | grep -A3 "MIG Mode"
+```
+
+If it didn't work, try rebooting
+```bash
+sudo reboot
+```
+
+### Generate CDI spec and enable CDI mode
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+sudo nvidia-ctk config --in-place --set nvidia-container-runtime.mode=cdi
+sudo systemctl restart docker
+```
+
 ### Create the kubernetes cluster
 
 ```bash
@@ -10,6 +32,7 @@ minikube start -p walkai-dev \
 --container-runtime=docker  \
 --cpus=22 \
 --memory=200g  \
+--disk-size=200g \
 --gpus nvidia.com  \
 --force
 ```
