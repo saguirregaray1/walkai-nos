@@ -20,10 +20,12 @@ import (
 	"context"
 	"github.com/nebuly-ai/nos/internal/controllers/migagent/plan"
 	"github.com/nebuly-ai/nos/pkg/gpu"
+	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/resource"
 	migtest "github.com/nebuly-ai/nos/pkg/test/mocks/mig"
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func TestMigActuator_applyDeleteOp(t *testing.T) {
@@ -106,7 +108,8 @@ func TestMigActuator_applyDeleteOp(t *testing.T) {
 			var migClient = migtest.Client{}
 			var actuator = MigActuator{migClient: &migClient}
 			migClient.ReturnedError = tt.clientReturnedError
-			status := actuator.applyDeleteOp(context.Background(), tt.op)
+
+			status, deleted := actuator.applyDeleteOp(context.Background(), tt.op)
 			if tt.errorExpected {
 				assert.Error(t, status.Err)
 			}
@@ -115,8 +118,97 @@ func TestMigActuator_applyDeleteOp(t *testing.T) {
 			}
 			assert.Equal(t, tt.restartExpected, status.PluginRestartRequired)
 			assert.Equal(t, tt.expectedDeleteCalls, migClient.NumCallsDeleteMigResource)
+			if tt.clientReturnedError == nil {
+				assert.Len(t, deleted, int(tt.expectedDeleteCalls))
+			} else {
+				assert.Len(t, deleted, 0)
+			}
 		})
 	}
+}
+
+type fakeMigClient struct {
+	createErrs      []error
+	createCallCount int
+	deleteCallCount int
+}
+
+func (f *fakeMigClient) GetMigDevices(ctx context.Context) (gpu.DeviceList, gpu.Error) {
+	return nil, nil
+}
+
+func (f *fakeMigClient) GetUsedMigDevices(ctx context.Context) (gpu.DeviceList, gpu.Error) {
+	return nil, nil
+}
+
+func (f *fakeMigClient) GetAllocatableMigDevices(ctx context.Context) (gpu.DeviceList, gpu.Error) {
+	return nil, nil
+}
+
+func (f *fakeMigClient) CreateMigDevices(ctx context.Context, profiles mig.ProfileList) (mig.ProfileList, error) {
+	f.createCallCount++
+	if f.createCallCount <= len(f.createErrs) {
+		err := f.createErrs[f.createCallCount-1]
+		if err != nil {
+			return nil, err
+		}
+	}
+	return profiles, nil
+}
+
+func (f *fakeMigClient) DeleteMigDevice(ctx context.Context, device gpu.Device) gpu.Error {
+	f.deleteCallCount++
+	return nil
+}
+
+func (f *fakeMigClient) DeleteAllExcept(ctx context.Context, resources gpu.DeviceList) error {
+	return nil
+}
+
+type fakeDevicePluginClient struct{}
+
+func (fakeDevicePluginClient) Restart(ctx context.Context, nodeName string, timeout time.Duration) error {
+	return nil
+}
+
+func TestMigActuator_apply_RollbackDeletedResources(t *testing.T) {
+	migClient := &fakeMigClient{
+		createErrs: []error{
+			gpu.GenericErr.Errorf("boom"),
+			nil,
+		},
+	}
+	actuator := MigActuator{
+		migClient:    migClient,
+		devicePlugin: fakeDevicePluginClient{},
+	}
+	plan := plan.MigConfigPlan{
+		DeleteOperations: plan.DeleteOperationList{
+			{
+				Resources: gpu.DeviceList{
+					{
+						Device: resource.Device{
+							ResourceName: "nvidia.com/mig-1g.10gb",
+							DeviceId:     "uid-1",
+							Status:       resource.StatusFree,
+						},
+						GpuIndex: 0,
+					},
+				},
+			},
+		},
+		CreateOperations: plan.CreateOperationList{
+			{
+				MigProfile: mig.Profile{GpuIndex: 0, Name: mig.Profile3g40gb},
+				Quantity:   1,
+			},
+		},
+	}
+
+	_, err := actuator.apply(context.Background(), plan)
+	assert.Error(t, err)
+	assert.Equal(t, 2, migClient.createCallCount)
+	assert.Equal(t, 1, migClient.deleteCallCount)
 }
 
 //func TestMigActuator_applyCreateOps(t *testing.T) {

@@ -163,8 +163,9 @@ func (a *MigActuator) apply(ctx context.Context, plan plan.MigConfigPlan) (ctrl.
 	var atLeastOneErr bool
 
 	// Apply delete operations first
+	deletedProfiles := make(mig.ProfileList, 0)
 	for _, op := range plan.DeleteOperations {
-		status := a.applyDeleteOp(ctx, op)
+		status, deleted := a.applyDeleteOp(ctx, op)
 		if status.Err != nil {
 			logger.Error(status.Err, "unable to fulfill delete operation", "op", op)
 			atLeastOneErr = true
@@ -172,11 +173,15 @@ func (a *MigActuator) apply(ctx context.Context, plan plan.MigConfigPlan) (ctrl.
 		if status.PluginRestartRequired {
 			restartRequired = true
 		}
+		deletedProfiles = append(deletedProfiles, deleted...)
 	}
 
 	// Apply create operations
 	status := a.applyCreateOps(ctx, plan.CreateOperations)
 	if status.Err != nil {
+		if len(deletedProfiles) > 0 {
+			a.rollbackDeletedResources(ctx, deletedProfiles)
+		}
 		logger.Error(status.Err, "unable to fulfill create operations")
 		atLeastOneErr = true
 	}
@@ -208,9 +213,10 @@ func (a *MigActuator) restartNvidiaDevicePlugin(ctx context.Context) error {
 	return a.devicePlugin.Restart(ctx, a.nodeName, 1*time.Minute)
 }
 
-func (a *MigActuator) applyDeleteOp(ctx context.Context, op plan.DeleteOperation) plan.OperationStatus {
+func (a *MigActuator) applyDeleteOp(ctx context.Context, op plan.DeleteOperation) (plan.OperationStatus, mig.ProfileList) {
 	logger := a.newLogger(ctx)
 	var restartRequired bool
+	deletedProfiles := make(mig.ProfileList, 0)
 
 	// Delete resources choosing from candidates
 	var nDeleted int
@@ -235,6 +241,7 @@ func (a *MigActuator) applyDeleteOp(ctx context.Context, op plan.DeleteOperation
 		}
 		logger.Info("deleted MIG resource", "resource", r)
 		nDeleted++
+		deletedProfiles = append(deletedProfiles, mig.Profile{GpuIndex: r.GpuIndex, Name: mig.GetMigProfileName(r)})
 	}
 
 	if nDeleted > 0 {
@@ -245,12 +252,12 @@ func (a *MigActuator) applyDeleteOp(ctx context.Context, op plan.DeleteOperation
 		return plan.OperationStatus{
 			PluginRestartRequired: restartRequired,
 			Err:                   deleteErrors,
-		}
+		}, deletedProfiles
 	}
 	return plan.OperationStatus{
 		PluginRestartRequired: restartRequired,
 		Err:                   nil,
-	}
+	}, deletedProfiles
 }
 
 func (a *MigActuator) applyCreateOps(ctx context.Context, ops plan.CreateOperationList) plan.OperationStatus {
@@ -274,6 +281,17 @@ func (a *MigActuator) applyCreateOps(ctx context.Context, ops plan.CreateOperati
 	return plan.OperationStatus{
 		PluginRestartRequired: true,
 		Err:                   nil,
+	}
+}
+
+func (a *MigActuator) rollbackDeletedResources(ctx context.Context, profiles mig.ProfileList) {
+	if len(profiles) == 0 {
+		return
+	}
+	logger := a.newLogger(ctx)
+	logger.Info("rolling back deleted MIG resources", "count", len(profiles))
+	if _, err := a.migClient.CreateMigDevices(ctx, profiles); err != nil {
+		logger.Error(err, "unable to recreate deleted MIG resources")
 	}
 }
 

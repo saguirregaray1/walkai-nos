@@ -32,7 +32,7 @@ minikube start -p walkai-dev \
 --container-runtime=docker  \
 --cpus=22 \
 --memory=200g  \
---disk-size=200g \
+--disk-size=50g \
 --gpus nvidia.com  \
 --force
 ```
