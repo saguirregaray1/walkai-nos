@@ -158,59 +158,113 @@ func (g *GPU) ApplyGeometry(geometry gpu.Geometry) error {
 //
 // The method returns true if the GPU geometry gets updated, false otherwise.
 func (g *GPU) UpdateGeometryFor(requiredProfiles map[gpu.Slice]int) bool {
-	var geometryNumProvidedProfiles = make(map[string]int)
-	var geometryLookup = make(map[string]gpu.Geometry)
-	var bestGeometry *gpu.Geometry
+	currentGeometry := g.GetGeometry()
+	var (
+		bestGeometry     *gpu.Geometry
+		bestScore        geometrySelectionScore
+		bestScoreDefined bool
+	)
 
-	// For each allowed geometry, compute the number of required profiles that it can provide
 	for _, candidate := range g.GetAllowedGeometries() {
-		for requiredProfile, requiredQuantity := range requiredProfiles {
-			requiredMigProfile, ok := requiredProfile.(ProfileName)
-			if !ok {
-				continue
-			}
-
-			// If GPU already provides the profile resources then there's nothing to do
-			if g.freeMigDevices[requiredMigProfile] >= requiredQuantity {
-				continue
-			}
-			numProvidedProfiles := util.Min(
-				candidate[requiredMigProfile]-g.usedMigDevices[requiredMigProfile],
-				requiredQuantity,
-			)
-			// If the candidate geometry does not provide the required profile, then skip it
-			if numProvidedProfiles <= 0 {
-				continue
-			}
-			// If we cannot apply the geometry, then skip it
-			if canApplyGeometry, _ := g.CanApplyGeometry(candidate); !canApplyGeometry {
-				continue
-			}
-			candidateGeometryId := candidate.Id()
-			geometryNumProvidedProfiles[candidateGeometryId] += numProvidedProfiles
-			geometryLookup[candidateGeometryId] = candidate
+		if canApplyGeometry, _ := g.CanApplyGeometry(candidate); !canApplyGeometry {
+			continue
+		}
+		provided := g.countProvidedProfiles(candidate, requiredProfiles, currentGeometry)
+		if provided <= 0 {
+			continue
+		}
+		score := geometrySelectionScore{
+			providedProfiles: provided,
+			geometryDistance: geometryDistance(currentGeometry, candidate),
+			totalSlices:      totalSliceCount(candidate),
+			geometryID:       candidate.Id(),
+		}
+		if !bestScoreDefined || isBetterGeometryScore(score, bestScore) {
+			candidateCopy := candidate
+			bestGeometry = &candidateCopy
+			bestScore = score
+			bestScoreDefined = true
 		}
 	}
 
-	// Find, if any, the geometry that provides the highest number of required profiles
-	maxProvidedProfiles := 0
-	for candidateId, nProvidedProfiles := range geometryNumProvidedProfiles {
-		if nProvidedProfiles > maxProvidedProfiles {
-			maxProvidedProfiles = nProvidedProfiles
-			candidate := geometryLookup[candidateId]
-			bestGeometry = &candidate
-		}
-	}
-
-	// No geometry can provide the required profiles, we're done
 	if bestGeometry == nil {
 		return false
 	}
 
-	// Apply the new geometry
 	_ = g.ApplyGeometry(*bestGeometry)
-
 	return true
+}
+
+func (g *GPU) countProvidedProfiles(
+	candidate gpu.Geometry,
+	requiredProfiles map[gpu.Slice]int,
+	currentGeometry gpu.Geometry,
+) int {
+	var provided int
+	for requiredProfile, requiredQuantity := range requiredProfiles {
+		requiredMigProfile, ok := requiredProfile.(ProfileName)
+		if !ok {
+			continue
+		}
+		if g.freeMigDevices[requiredMigProfile] >= requiredQuantity {
+			continue
+		}
+		needed := requiredQuantity - g.freeMigDevices[requiredMigProfile]
+		if needed <= 0 {
+			continue
+		}
+		additionalCapacity := candidate[requiredMigProfile] - currentGeometry[requiredMigProfile]
+		if additionalCapacity <= 0 {
+			continue
+		}
+		provided += util.Min(additionalCapacity, needed)
+	}
+	return provided
+}
+
+type geometrySelectionScore struct {
+	providedProfiles int
+	totalSlices      int
+	geometryDistance int
+	geometryID       string
+}
+
+func isBetterGeometryScore(candidate, current geometrySelectionScore) bool {
+	if candidate.providedProfiles != current.providedProfiles {
+		return candidate.providedProfiles > current.providedProfiles
+	}
+	if candidate.totalSlices != current.totalSlices {
+		return candidate.totalSlices > current.totalSlices
+	}
+	if candidate.geometryDistance != current.geometryDistance {
+		return candidate.geometryDistance < current.geometryDistance
+	}
+	return candidate.geometryID < current.geometryID
+}
+
+func geometryDistance(current, candidate gpu.Geometry) int {
+	sum := 0
+	seen := make(map[gpu.Slice]struct{}, len(current))
+	for profile, currentCount := range current {
+		seen[profile] = struct{}{}
+		candidateCount := candidate[profile]
+		sum += util.Abs(candidateCount - currentCount)
+	}
+	for profile, candidateCount := range candidate {
+		if _, ok := seen[profile]; ok {
+			continue
+		}
+		sum += util.Abs(candidateCount)
+	}
+	return sum
+}
+
+func totalSliceCount(geometry gpu.Geometry) int {
+	sum := 0
+	for _, count := range geometry {
+		sum += count
+	}
+	return sum
 }
 
 // AllowsGeometry returns true if the geometry provided as argument is allowed by the GPU model

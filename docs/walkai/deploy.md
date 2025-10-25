@@ -72,10 +72,24 @@ cd walkai-nos
 ```bash
 kubectl label node walkai-dev nos.nebuly.com/gpu-partitioning=mig --overwrite
 ```
+
+Edit the API endpoint at cluster_info_exporter_config.yaml. If you are running a local cluster you can use:
+```bash
+minikube -p <node name> ssh -- "ip route | awk '/default/ {print \$3; exit}'"
+```
+To get the IP of the gateway. Or you can use ngrok for a public ip to your api
+
+Create secret with the API Token
+
+```bash
+kubectl create namespace nos-system
+kubectl create secret generic cluster-info-exporter-secrets -n nos-system --from-literal=apiToken='<token>'
+```
+
 ```bash
 kubectl apply -k config/migagent/default
-kubectl apply -k config/gpuagent/default
 kubectl apply -k config/gpupartitioner/default
+kubectl apply -k config/clusterinfoexporter/default
 ```
 
 ```bash
