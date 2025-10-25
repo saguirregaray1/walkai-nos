@@ -71,9 +71,10 @@ func (c Collector) Collect(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
+	inventory := buildGPUInventory(nodes.Items, pods.Items)
 	snapshot := Snapshot{
 		Timestamp: c.clock.Now().UTC(),
-		GPUs:      buildGPUInventory(nodes.Items),
+		GPUs:      inventory,
 		Pods:      buildPodSummaries(pods.Items),
 	}
 	return snapshot, nil
@@ -84,7 +85,14 @@ type gpuTotals struct {
 	Available int
 }
 
-func buildGPUInventory(nodes []v1.Node) []GPUInventory {
+func buildGPUInventory(nodes []v1.Node, pods []v1.Pod) []GPUInventory {
+	if inventory := buildGPUInventoryFromAnnotations(nodes); len(inventory) > 0 {
+		return inventory
+	}
+	return buildGPUInventoryFromCapacity(nodes, pods)
+}
+
+func buildGPUInventoryFromAnnotations(nodes []v1.Node) []GPUInventory {
 	result := make(map[string]gpuTotals)
 	for _, node := range nodes {
 		statusAnnotations, _ := gpu.ParseNodeAnnotations(node)
@@ -99,19 +107,61 @@ func buildGPUInventory(nodes []v1.Node) []GPUInventory {
 			result[annotation.ProfileName] = entry
 		}
 	}
+	return gpuTotalsToInventory(result)
+}
 
-	profiles := make([]string, 0, len(result))
-	for profile := range result {
+func buildGPUInventoryFromCapacity(nodes []v1.Node, pods []v1.Pod) []GPUInventory {
+	capacityTotals := make(map[mig.ProfileName]int)
+	for _, node := range nodes {
+		for resourceName, quantity := range node.Status.Capacity {
+			profile, err := mig.ExtractProfileName(resourceName)
+			if err != nil {
+				continue
+			}
+			capacityTotals[profile] += int(quantity.Value())
+		}
+	}
+	if len(capacityTotals) == 0 {
+		return nil
+	}
+	allocated := aggregatePodRequests(pods)
+	result := make(map[string]gpuTotals)
+	for profile, total := range capacityTotals {
+		used := allocated[profile]
+		if used > total {
+			used = total
+		}
+		available := total - used
+		result[profile.String()] = gpuTotals{
+			Allocated: used,
+			Available: available,
+		}
+	}
+	return gpuTotalsToInventory(result)
+}
+
+func aggregatePodRequests(pods []v1.Pod) map[mig.ProfileName]int {
+	allocated := make(map[mig.ProfileName]int)
+	for _, pod := range pods {
+		for profile, quantity := range mig.GetRequestedProfiles(pod) {
+			allocated[profile] += quantity
+		}
+	}
+	return allocated
+}
+
+func gpuTotalsToInventory(data map[string]gpuTotals) []GPUInventory {
+	profiles := make([]string, 0, len(data))
+	for profile := range data {
 		if profile == "" {
 			continue
 		}
 		profiles = append(profiles, profile)
 	}
 	sort.Strings(profiles)
-
 	inventory := make([]GPUInventory, 0, len(profiles))
 	for _, profile := range profiles {
-		entry := result[profile]
+		entry := data[profile]
 		inventory = append(inventory, GPUInventory{
 			Profile:   profile,
 			Allocated: entry.Allocated,

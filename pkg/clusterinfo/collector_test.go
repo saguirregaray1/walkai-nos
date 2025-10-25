@@ -52,7 +52,7 @@ func Test_buildGPUInventory(t *testing.T) {
 		},
 	}
 
-	got := buildGPUInventory(nodes)
+	got := buildGPUInventory(nodes, nil)
 	want := []GPUInventory{
 		{
 			Profile:   "1g.10gb",
@@ -61,6 +61,65 @@ func Test_buildGPUInventory(t *testing.T) {
 		},
 		{
 			Profile:   "3g.40gb",
+			Allocated: 1,
+			Available: 0,
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("unexpected diff (-want +got):\n%s", diff)
+	}
+}
+
+func Test_buildGPUInventory_FallbackToCapacity(t *testing.T) {
+	t.Parallel()
+	nodes := []v1.Node{
+		{
+			Status: v1.NodeStatus{
+				Capacity: v1.ResourceList{
+					mig.Profile1g10gb.AsResourceName(): kresource.MustParse("3"),
+					mig.Profile2g20gb.AsResourceName(): kresource.MustParse("1"),
+				},
+			},
+		},
+	}
+	pods := []v1.Pod{
+		{
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								mig.Profile1g10gb.AsResourceName(): kresource.MustParse("2"),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								mig.Profile1g10gb.AsResourceName(): kresource.MustParse("1"),
+								mig.Profile2g20gb.AsResourceName(): kresource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	got := buildGPUInventory(nodes, pods)
+	want := []GPUInventory{
+		{
+			Profile:   "1g.10gb",
+			Allocated: 3,
+			Available: 0,
+		},
+		{
+			Profile:   "2g.20gb",
 			Allocated: 1,
 			Available: 0,
 		},
