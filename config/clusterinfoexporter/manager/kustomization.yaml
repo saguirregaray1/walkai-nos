@@ -1,0 +1,10 @@
+resources:
+  - cluster_info_exporter.yaml
+  - cluster_info_exporter_config.yaml
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+  - name: cluster-info-exporter
+    newName: ghcr.io/saguirregaray1/nos-cluster-info-exporter
+    newTag: 0.0.1
