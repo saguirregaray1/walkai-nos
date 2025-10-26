@@ -21,6 +21,7 @@ import (
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/test/factory"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"testing"
 )
@@ -294,11 +295,32 @@ func TestGPU__ApplyGeometry(t *testing.T) {
 }
 
 func TestGPU__UpdateGeometryFor(t *testing.T) {
+	originalConfigs := cloneKnownGeometries(mig.GetKnownGeometries())
+	updatedConfigs := cloneKnownGeometries(originalConfigs)
+	updatedConfigs[gpu.GPUModel_A100_PCIe_80GB] = []gpu.Geometry{
+		{mig.Profile1g10gb: 7},
+		{mig.Profile1g10gb: 5, mig.Profile2g20gb: 1},
+		{mig.Profile1g10gb: 3, mig.Profile2g20gb: 2},
+		{mig.Profile1g10gb: 1, mig.Profile2g20gb: 3},
+		{mig.Profile1g10gb: 2, mig.Profile2g20gb: 1, mig.Profile3g40gb: 1},
+		{mig.Profile2g20gb: 2, mig.Profile3g40gb: 1},
+		{mig.Profile1g10gb: 3, mig.Profile3g40gb: 1},
+		{mig.Profile1g10gb: 1, mig.Profile2g20gb: 1, mig.Profile3g40gb: 1},
+		{mig.Profile3g40gb: 2},
+		{mig.Profile1g10gb: 3, mig.Profile4g40gb: 1},
+		{mig.Profile1g10gb: 1, mig.Profile2g20gb: 1, mig.Profile4g40gb: 1},
+		{mig.Profile7g79gb: 1},
+	}
+	require.NoError(t, mig.SetKnownGeometries(updatedConfigs))
+	t.Cleanup(func() {
+		require.NoError(t, mig.SetKnownGeometries(originalConfigs))
+	})
+
 	testCases := []struct {
 		name             string
 		gpu              mig.GPU
 		profiles         map[gpu.Slice]int
-		expectedGeometry map[gpu.Slice]int
+		expectedGeometry gpu.Geometry
 		expectedUpdated  bool
 	}{
 		{
@@ -312,7 +334,7 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 				map[mig.ProfileName]int{},
 			),
 			profiles: map[gpu.Slice]int{},
-			expectedGeometry: map[gpu.Slice]int{
+			expectedGeometry: gpu.Geometry{
 				mig.Profile2g20gb: 1, // unchanged
 			},
 			expectedUpdated: false,
@@ -330,7 +352,7 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 			profiles: map[gpu.Slice]int{
 				mig.Profile1g10gb: 1,
 			},
-			expectedGeometry: map[gpu.Slice]int{
+			expectedGeometry: gpu.Geometry{
 				mig.Profile2g20gb: 1, // unchanged
 			},
 			expectedUpdated: false,
@@ -348,7 +370,7 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 			profiles: map[gpu.Slice]int{
 				mig.Profile7g79gb: 1,
 			},
-			expectedGeometry: map[gpu.Slice]int{
+			expectedGeometry: gpu.Geometry{
 				mig.Profile2g20gb: 1, // unchanged
 			},
 			expectedUpdated: false,
@@ -368,7 +390,7 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 			profiles: map[gpu.Slice]int{
 				mig.Profile2g20gb: 2,
 			},
-			expectedGeometry: map[gpu.Slice]int{
+			expectedGeometry: gpu.Geometry{
 				mig.Profile2g20gb: 3, // unchanged
 			},
 			expectedUpdated: false,
@@ -387,13 +409,13 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 			profiles: map[gpu.Slice]int{
 				mig.Profile1g10gb: 6,
 			},
-			expectedGeometry: map[gpu.Slice]int{
+			expectedGeometry: gpu.Geometry{
 				mig.Profile1g10gb: 7,
 			},
 			expectedUpdated: true,
 		},
 		{
-			name: "",
+			name: "Should update when additional instances of an already present profile are requested",
 			gpu: mig.NewGpuOrPanic(
 				gpu.GPUModel_A100_PCIe_80GB,
 				0,
@@ -407,8 +429,49 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 			profiles: map[gpu.Slice]int{
 				mig.Profile3g40gb: 1,
 			},
-			expectedGeometry: map[gpu.Slice]int{
+			expectedGeometry: gpu.Geometry{
 				mig.Profile3g40gb: 2,
+			},
+			expectedUpdated: true,
+		},
+		{
+			name: "Prefers geometry that minimally changes current layout while satisfying requirements",
+			gpu: mig.NewGpuOrPanic(
+				gpu.GPUModel_A100_PCIe_80GB,
+				0,
+				map[mig.ProfileName]int{},
+				map[mig.ProfileName]int{
+					mig.Profile1g10gb: 7,
+				},
+			),
+			profiles: map[gpu.Slice]int{
+				mig.Profile2g20gb: 1,
+			},
+			expectedGeometry: gpu.Geometry{
+				mig.Profile1g10gb: 5,
+				mig.Profile2g20gb: 1,
+			},
+			expectedUpdated: true,
+		},
+		{
+			name: "Keeps existing profiles when multiple geometries satisfy the same demand",
+			gpu: mig.NewGpuOrPanic(
+				gpu.GPUModel_A100_PCIe_80GB,
+				0,
+				map[mig.ProfileName]int{},
+				map[mig.ProfileName]int{
+					mig.Profile1g10gb: 1,
+					mig.Profile2g20gb: 1,
+					mig.Profile4g40gb: 1,
+				},
+			),
+			profiles: map[gpu.Slice]int{
+				mig.Profile3g40gb: 1,
+			},
+			expectedGeometry: gpu.Geometry{
+				mig.Profile1g10gb: 2,
+				mig.Profile2g20gb: 1,
+				mig.Profile3g40gb: 1,
 			},
 			expectedUpdated: true,
 		},
@@ -418,6 +481,7 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			updated := tt.gpu.UpdateGeometryFor(tt.profiles)
 			assert.Equal(t, tt.expectedUpdated, updated)
+			assert.Equal(t, tt.expectedGeometry, tt.gpu.GetGeometry())
 		})
 	}
 }
@@ -513,4 +577,20 @@ func TestGPU__ApplyInitialGeometry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func cloneKnownGeometries(in map[gpu.Model][]gpu.Geometry) map[gpu.Model][]gpu.Geometry {
+	cloned := make(map[gpu.Model][]gpu.Geometry, len(in))
+	for model, geometries := range in {
+		copiedGeometries := make([]gpu.Geometry, len(geometries))
+		for i, geometry := range geometries {
+			copiedGeometry := make(gpu.Geometry, len(geometry))
+			for profile, quantity := range geometry {
+				copiedGeometry[profile] = quantity
+			}
+			copiedGeometries[i] = copiedGeometry
+		}
+		cloned[model] = copiedGeometries
+	}
+	return cloned
 }

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-info-exporter-config
+  namespace: system
+data:
+  endpoint: http://192.168.76.1:8000/cluster/insights
+  interval: 10s
+  httpTimeout: 10s

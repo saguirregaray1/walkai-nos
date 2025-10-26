@@ -1,5 +1,5 @@
 # nos version. Used by release workflow, do not move this line.
-NOS_VERSION ?= 0.0.1
+NOS_VERSION ?= 0.0.4
 
 DOCKER_REGISTRY ?= ghcr.io/saguirregaray1
 
@@ -8,6 +8,7 @@ GPU_PARTITIONER_IMG ?= $(DOCKER_REGISTRY)/nos-gpu-partitioner:$(NOS_VERSION)
 MIG_AGENT_IMG ?= $(DOCKER_REGISTRY)/nos-mig-agent:$(NOS_VERSION)
 GPU_AGENT_IMG ?= $(DOCKER_REGISTRY)/nos-gpu-agent:$(NOS_VERSION)
 METRICS_EXPORTER_IMG ?= $(DOCKER_REGISTRY)/nos-metrics-exporter:$(NOS_VERSION)
+CLUSTER_INFO_EXPORTER_IMG ?= $(DOCKER_REGISTRY)/nos-cluster-info-exporter:$(NOS_VERSION)
 
 # Helm chart URL to push Helm charts
 HELM_CHART_REGISTRY ?= oci://ghcr.io/nebuly-ai/helm-charts
@@ -135,6 +136,10 @@ docker-build-gpu-agent: ## Build docker image with the gpu-agent.
 docker-build-metrics-exporter: ## Build docker image with the metrics-exporter.
 	docker build -t ${METRICS_EXPORTER_IMG} -f build/metricsexporter/Dockerfile .
 
+.PHONY: docker-build-cluster-info-exporter
+docker-build-cluster-info-exporter: ## Build docker image with the cluster info exporter.
+	docker build -t ${CLUSTER_INFO_EXPORTER_IMG} -f build/clusterinfoexporter/Dockerfile .
+
 .PHONY: docker-push-mig-agent
 docker-push-mig-agent: ## Push docker image with the mig-agent.
 	docker push ${MIG_AGENT_IMG}
@@ -151,17 +156,23 @@ docker-push-gpu-partitioner: ## Push docker image with the gpu-partitioner.
 docker-push-metrics-exporter: ## Push docker image with the metrics-exporter.
 	docker push ${METRICS_EXPORTER_IMG}
 
+.PHONY: docker-push-cluster-info-exporter
+docker-push-cluster-info-exporter: ## Push docker image with the cluster info exporter.
+	docker push ${CLUSTER_INFO_EXPORTER_IMG}
+
 .PHONY: docker-build
 docker-build: docker-build-mig-agent \
 	docker-build-gpu-agent \
 	docker-build-gpu-partitioner \
-	docker-build-metrics-exporter
+	docker-build-metrics-exporter \
+	docker-build-cluster-info-exporter
 
 .PHONY: docker-push
 docker-push: docker-push-mig-agent \
 	docker-push-gpu-agent \
 	docker-push-gpu-partitioner \
-	docker-push-metrics-exporter
+	docker-push-metrics-exporter \
+	docker-push-cluster-info-exporter
 
 .PHONY: helm-push-nos
 helm-push-nos: ## Push the nos Helm chart to the Helm repository.
@@ -197,8 +208,13 @@ deploy-gpu-partitioner: kustomize deploy-mig-agent deploy-gpu-agent ## Deploy th
 	cd config/gpupartitioner/manager && $(KUSTOMIZE) edit set image gpu-partitioner=${GPU_PARTITIONER_IMG}
 	$(KUSTOMIZE) build config/gpupartitioner/default | kubectl apply -f -
 
+.PHONY: deploy-cluster-info-exporter
+deploy-cluster-info-exporter: kustomize ## Deploy the Cluster Info Exporter to the K8s cluster specified in ~/.kube/config.
+	cd config/clusterinfoexporter/manager && $(KUSTOMIZE) edit set image cluster-info-exporter=${CLUSTER_INFO_EXPORTER_IMG}
+	$(KUSTOMIZE) build config/clusterinfoexporter/default | kubectl apply -f -
+
 .PHONY: deploy
-deploy: deploy-gpu-partitioner deploy-gpu-agent deploy-mig-agent ## Deploy the MIG-related components to the K8s cluster specified in ~/.kube/config.
+deploy: deploy-gpu-partitioner deploy-gpu-agent deploy-mig-agent deploy-cluster-info-exporter ## Deploy the NOS components to the K8s cluster specified in ~/.kube/config.
 
 .PHONY: undeploy-mig-agent
 undeploy-mig-agent: ## Undeploy the MIG agent from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -212,8 +228,12 @@ undeploy-gpu-agent: ## Undeploy the GPU agent from the K8s cluster specified in 
 undeploy-gpu-partitioner: ## Undeploy the GPU Partitioner from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/gpupartitioner/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
+.PHONY: undeploy-cluster-info-exporter
+undeploy-cluster-info-exporter: ## Undeploy the Cluster Info Exporter from the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/clusterinfoexporter/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+
 .PHONY: undeploy
-undeploy: undeploy-gpu-partitioner undeploy-gpu-agent undeploy-mig-agent ## Undeploy the MIG-related components from the K8s cluster specified in ~/.kube/config.
+undeploy: undeploy-gpu-partitioner undeploy-gpu-agent undeploy-mig-agent undeploy-cluster-info-exporter ## Undeploy the NOS components from the K8s cluster specified in ~/.kube/config.
 
 ##@ Build Dependencies
 

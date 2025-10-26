@@ -1,13 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `cmd/`: Main binaries (operator, scheduler, gpuagent, migagent, gpupartitioner, metricsexporter).
-- `internal/`: Controllers and internal packages (e.g., ElasticQuota, GPU/MIG logic).
-- `pkg/`: Public packages (API types, scheduler lib, utilities, tests helpers).
 - `build/`: Dockerfiles per component.
+- `cmd/`: Main binaries (gpuagent, migagent, gpupartitioner, metricsexporter).
 - `config/`: Kubernetes manifests (CRDs, RBAC, webhook, per-component configs).
-- `helm-charts/`: Helm chart definitions and docs.
 - `docs/`, `hack/`, `demos/`: Documentation, scripts, local dev helpers.
+- `helm-charts/`: Helm chart definitions and docs.
+- `internal/`: Controllers and internal packages.
+- `pkg/`: Public packages (API types, scheduler lib, utilities, tests helpers).
 
 ## Build, Test, and Development Commands
 - `make help`: List all available developer targets.

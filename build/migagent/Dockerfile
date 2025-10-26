@@ -31,7 +31,7 @@ COPY internal internal/
 # Build
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -a -o migagent -tags nvml migagent.go
 
-FROM nvidia/cuda:11.6.2-base-ubuntu20.04
+FROM nvidia/cuda:12.2.2-base-ubuntu22.04
 WORKDIR /
 COPY --from=builder /workspace/migagent .
 
