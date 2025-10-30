@@ -34,8 +34,10 @@ type GPUInventory struct {
 
 // PodSummary contains high-level information about a Pod that requests MIG resources.
 type PodSummary struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Status    string `json:"status"`
-	GPU       string `json:"gpu"`
+	Name       string     `json:"name"`
+	Namespace  string     `json:"namespace"`
+	Status     string     `json:"status"`
+	GPU        string     `json:"gpu"`
+	StartTime  *time.Time `json:"start_time"`
+	FinishTime *time.Time `json:"finish_time"`
 }

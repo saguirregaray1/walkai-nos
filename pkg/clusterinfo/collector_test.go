@@ -19,6 +19,7 @@ package clusterinfo
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
@@ -131,6 +132,12 @@ func Test_buildGPUInventory_FallbackToCapacity(t *testing.T) {
 
 func Test_buildPodSummaries(t *testing.T) {
 	t.Parallel()
+	bigStart := time.Date(2023, 1, 1, 15, 4, 5, 0, time.UTC)
+	bigStartMeta := metav1.NewTime(bigStart)
+	mediumStart := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
+	mediumStartMeta := metav1.NewTime(mediumStart)
+	mediumFinish := mediumStart.Add(30 * time.Minute)
+	mediumFinishMeta := metav1.NewTime(mediumFinish)
 	pods := []v1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -168,6 +175,18 @@ func Test_buildPodSummaries(t *testing.T) {
 				Name:      "big-job-1",
 				Namespace: "walkai",
 			},
+			Status: v1.PodStatus{
+				Phase:     v1.PodRunning,
+				StartTime: &bigStartMeta,
+				ContainerStatuses: []v1.ContainerStatus{
+					{
+						Name: "c",
+						State: v1.ContainerState{
+							Running: &v1.ContainerStateRunning{},
+						},
+					},
+				},
+			},
 			Spec: v1.PodSpec{
 				Containers: []v1.Container{
 					{
@@ -180,13 +199,34 @@ func Test_buildPodSummaries(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "medium-job-1",
+				Namespace: "walkai",
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "c",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								mig.Profile2g20gb.AsResourceName(): kresource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
 			Status: v1.PodStatus{
-				Phase: v1.PodRunning,
+				Phase:     v1.PodSucceeded,
+				StartTime: &mediumStartMeta,
 				ContainerStatuses: []v1.ContainerStatus{
 					{
 						Name: "c",
 						State: v1.ContainerState{
-							Running: &v1.ContainerStateRunning{},
+							Terminated: &v1.ContainerStateTerminated{
+								FinishedAt: mediumFinishMeta,
+							},
 						},
 					},
 				},
@@ -210,19 +250,34 @@ func Test_buildPodSummaries(t *testing.T) {
 		},
 	}
 
+	bigStartUTC := bigStart.UTC()
+	mediumStartUTC := mediumStart.UTC()
+	mediumFinishUTC := mediumFinish.UTC()
 	got := buildPodSummaries(pods)
 	want := []PodSummary{
 		{
-			Name:      "big-job-1",
-			Namespace: "walkai",
-			Status:    "Running",
-			GPU:       "3g.40gb x2",
+			Name:       "big-job-1",
+			Namespace:  "walkai",
+			Status:     "Running",
+			GPU:        "3g.40gb x2",
+			StartTime:  &bigStartUTC,
+			FinishTime: nil,
 		},
 		{
-			Name:      "small-job-1",
-			Namespace: "walkai",
-			Status:    "ContainerCreating",
-			GPU:       "1g.10gb",
+			Name:       "medium-job-1",
+			Namespace:  "walkai",
+			Status:     "Succeeded",
+			GPU:        "2g.20gb",
+			StartTime:  &mediumStartUTC,
+			FinishTime: &mediumFinishUTC,
+		},
+		{
+			Name:       "small-job-1",
+			Namespace:  "walkai",
+			Status:     "ContainerCreating",
+			GPU:        "1g.10gb",
+			StartTime:  nil,
+			FinishTime: nil,
 		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {

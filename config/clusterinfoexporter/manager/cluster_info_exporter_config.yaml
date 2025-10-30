@@ -4,6 +4,6 @@ metadata:
   name: cluster-info-exporter-config
   namespace: system
 data:
-  endpoint: http://192.168.76.1:8000/cluster/insights
+  endpoint: https://logical-overly-vulture.ngrok-free.app/cluster/insights
   interval: 10s
   httpTimeout: 10s

@@ -179,10 +179,12 @@ func buildPodSummaries(pods []v1.Pod) []PodSummary {
 			continue
 		}
 		summaries = append(summaries, PodSummary{
-			Name:      pod.Name,
-			Namespace: pod.Namespace,
-			Status:    podStatus(pod),
-			GPU:       formatProfiles(profiles),
+			Name:       pod.Name,
+			Namespace:  pod.Namespace,
+			Status:     podStatus(pod),
+			GPU:        formatProfiles(profiles),
+			StartTime:  podStartTime(pod),
+			FinishTime: podFinishTime(pod),
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {
@@ -205,6 +207,55 @@ func podStatus(pod v1.Pod) string {
 		return string(phase)
 	}
 	return "Unknown"
+}
+
+func podStartTime(pod v1.Pod) *time.Time {
+	if pod.Status.StartTime == nil || pod.Status.StartTime.IsZero() {
+		return nil
+	}
+	t := pod.Status.StartTime.Time.UTC()
+	return &t
+}
+
+func podFinishTime(pod v1.Pod) *time.Time {
+	if pod.Status.Phase != v1.PodSucceeded && pod.Status.Phase != v1.PodFailed {
+		return nil
+	}
+	latest := latestFinishedAt(pod.Status.InitContainerStatuses)
+	latest = maxTime(latest, latestFinishedAt(pod.Status.ContainerStatuses))
+	latest = maxTime(latest, latestFinishedAt(pod.Status.EphemeralContainerStatuses))
+	return latest
+}
+
+func latestFinishedAt(statuses []v1.ContainerStatus) *time.Time {
+	var latest *time.Time
+	for _, status := range statuses {
+		if status.State.Terminated != nil && !status.State.Terminated.FinishedAt.IsZero() {
+			t := status.State.Terminated.FinishedAt.Time.UTC()
+			if latest == nil || t.After(*latest) {
+				tt := t
+				latest = &tt
+			}
+		}
+		if status.LastTerminationState.Terminated != nil && !status.LastTerminationState.Terminated.FinishedAt.IsZero() {
+			t := status.LastTerminationState.Terminated.FinishedAt.Time.UTC()
+			if latest == nil || t.After(*latest) {
+				tt := t
+				latest = &tt
+			}
+		}
+	}
+	return latest
+}
+
+func maxTime(current *time.Time, candidate *time.Time) *time.Time {
+	if candidate == nil {
+		return current
+	}
+	if current == nil || candidate.After(*current) {
+		return candidate
+	}
+	return current
 }
 
 func containerStatusesReason(statuses []v1.ContainerStatus) string {
